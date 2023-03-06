@@ -12,19 +12,24 @@ struct SolverStep {
 struct SolverState {
     result: Vec<char>,
     words: Vec<usize>,
+    interrupted: bool,
 }
 
 impl SolverState {
     pub fn new(grid: &Grid) -> SolverState {
         let result = vec![' '; grid.slots];
         let words = vec![0; grid.num_words()];
+        let interrupted = false;
 
         SolverState {
             result,
             words,
+            interrupted,
         }
     }
 }
+
+pub type InterruptCheck<'a> = dyn FnMut() -> bool + 'a;
 
 fn generate_solver_steps(grid: &Grid, dict: &Dictionary) -> Vec<SolverStep> {
     let mut solver_steps: Vec<SolverStep> = Vec::with_capacity(grid.num_words());
@@ -77,7 +82,9 @@ fn generate_solver_steps(grid: &Grid, dict: &Dictionary) -> Vec<SolverStep> {
     solver_steps
 }
 
-fn solve_step(state: &mut SolverState, steps: &Vec<SolverStep>, step: usize) -> bool {
+fn solve_step(state: &mut SolverState, steps: &Vec<SolverStep>, step: usize, is_interrupted:
+&mut InterruptCheck) ->
+              bool {
     if step >= steps.len() {
         true
     } else {
@@ -86,6 +93,10 @@ fn solve_step(state: &mut SolverState, steps: &Vec<SolverStep>, step: usize) -> 
         let known_letters: Vec<char> = input_slots.iter().map(|j| state.result[*j]).collect();
 
         for (wi, attempt) in index.get(&known_letters) {
+            state.interrupted = state.interrupted || is_interrupted();
+            if state.interrupted {
+                break;
+            }
             if state.words[0..step].contains(wi) {
                 continue;
             }
@@ -95,7 +106,7 @@ fn solve_step(state: &mut SolverState, steps: &Vec<SolverStep>, step: usize) -> 
                 state.result[*out_slot] = *att;
             }
 
-            if solve_step(state, steps, step + 1) {
+            if solve_step(state, steps, step + 1, is_interrupted) {
                 return true
             }
         }
@@ -105,10 +116,15 @@ fn solve_step(state: &mut SolverState, steps: &Vec<SolverStep>, step: usize) -> 
 }
 
 pub fn solve(grid: &Grid, dict: &Dictionary) -> Option<Vec<char>> {
+    solve_interruptible(grid, dict, &mut || false)
+}
+
+pub fn solve_interruptible(grid: &Grid, dict: &Dictionary, interrupt_check: &mut InterruptCheck) ->
+                                                                                              Option<Vec<char>> {
     let mut state: SolverState = SolverState::new(&grid);
     let steps = generate_solver_steps(&grid, &dict);
 
-    if solve_step(&mut state, &steps, 0) {
+    if solve_step(&mut state, &steps, 0, interrupt_check) {
         Some(state.result)
     } else {
         None
